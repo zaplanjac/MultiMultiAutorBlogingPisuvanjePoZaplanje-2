@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useEffect } from 'react';
 import { Calendar, Eye, User, Tag, ArrowRight, PenTool, ArrowUp, Github, Share2 } from 'lucide-react';
 import { BlogPost } from '../types';
-import { mockPosts, mockCategories } from '../data/mockData';
-import { getRegisteredAuthors } from '../data/authors';
+import { postService } from '../services/postService';
+import { profileService } from '../services/profileService';
+import { mockCategories } from '../data/mockData';
 
 interface BlogListProps {
   onSelectPost: (post: BlogPost) => void;
@@ -12,7 +13,9 @@ interface BlogListProps {
 const BlogList: React.FC<BlogListProps> = ({ onSelectPost }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [posts, setPosts] = useState(mockPosts);
+  const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [authors, setAuthors] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   // Scroll to top when component mounts
@@ -30,42 +33,29 @@ const BlogList: React.FC<BlogListProps> = ({ onSelectPost }) => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Refresh posts when component mounts or when posts might have changed
+  // Load posts and authors when component mounts
   useEffect(() => {
-    const refreshPosts = () => {
-      const storedPosts = localStorage.getItem('blogPosts');
-      if (storedPosts) {
-        setPosts(JSON.parse(storedPosts));
-      } else {
-        setPosts(mockPosts);
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [postsData, authorsData] = await Promise.all([
+          postService.getPublishedPosts(),
+          profileService.getAllProfiles()
+        ]);
+        setPosts(postsData);
+        setAuthors(authorsData);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
       }
     };
     
-    refreshPosts();
-    
-    // Listen for storage changes (when new posts are added)
-    const handleStorageChange = () => {
-      refreshPosts();
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Custom event for when posts are updated in the same tab
-    const handlePostsUpdate = () => {
-      refreshPosts();
-    };
-    
-    window.addEventListener('postsUpdated', handlePostsUpdate);
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('postsUpdated', handlePostsUpdate);
-    };
+    loadData();
   }, []);
   
-  const publishedPosts = posts.filter(post => post.status === 'published');
-  const featuredPosts = publishedPosts.filter(post => post.isFeature);
-  const regularPosts = publishedPosts.filter(post => !post.isFeature);
+  const featuredPosts = posts.filter(post => post.isFeature);
+  const regularPosts = posts.filter(post => !post.isFeature);
 
   const filteredPosts = regularPosts.filter(post => {
     const matchesCategory = selectedCategory === 'all' || post.category === selectedCategory;
@@ -83,7 +73,7 @@ const BlogList: React.FC<BlogListProps> = ({ onSelectPost }) => {
   };
 
   const getAuthorName = (authorId: string) => {
-    const author = getRegisteredAuthors().find(user => user.id === authorId);
+    const author = authors.find(user => user.id === authorId);
     return author ? author.name : 'Непознат аутор';
   };
 
@@ -360,7 +350,11 @@ const BlogList: React.FC<BlogListProps> = ({ onSelectPost }) => {
         {/* Regular Posts */}
         <section>
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Најновији чланци</h2>
-          {filteredPosts.length > 0 ? (
+          {loading ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500 text-lg">Учитавање чланака...</p>
+            </div>
+          ) : filteredPosts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredPosts.map(post => (
                 <PostCard key={post.id} post={post} />

@@ -12,10 +12,8 @@ import {
   User
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { mockPosts } from '../data/mockData';
-import { getRegisteredAuthors } from '../data/authors';
-import { deletePost } from '../data/mockData';
-import { deleteAuthor } from '../data/authors';
+import { postService } from '../services/postService';
+import { profileService } from '../services/profileService';
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
@@ -24,34 +22,41 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const { user, canAdmin, canModerate } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
-  const [posts, setPosts] = useState(mockPosts);
-  const [users, setUsers] = useState(getRegisteredAuthors());
+  const [posts, setPosts] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Refresh data when component mounts and when posts are updated
+  // Load data when component mounts
   useEffect(() => {
-    const refreshData = () => {
-      const storedPosts = localStorage.getItem('blogPosts');
-      if (storedPosts) {
-        setPosts(JSON.parse(storedPosts));
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        
+        let postsData;
+        if (user?.role === 'super_admin' || user?.role === 'editor') {
+          postsData = await postService.getAllPosts();
+        } else if (user?.id) {
+          postsData = await postService.getPostsByAuthor(user.id);
+        } else {
+          postsData = [];
+        }
+        
+        const usersData = await profileService.getAllProfiles();
+        
+        setPosts(postsData);
+        setUsers(usersData);
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setLoading(false);
       }
-      
-      setUsers(getRegisteredAuthors());
     };
     
-    refreshData();
-    
-    // Listen for posts updates
-    const handlePostsUpdate = () => {
-      refreshData();
-    };
-    
-    window.addEventListener('postsUpdated', handlePostsUpdate);
-    
-    return () => {
-      window.removeEventListener('postsUpdated', handlePostsUpdate);
-    };
-  }, []);
+    if (user) {
+      loadData();
+    }
+  }, [user]);
 
   const userPosts = posts.filter(post => 
     user?.role === 'super_admin' || user?.role === 'editor' || post.authorId === user?.id
@@ -67,55 +72,58 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       day: 'numeric'
     });
   };
-  const handleDeletePost = (postId: string) => {
+  const handleDeletePost = async (postId: string) => {
     if (canAdmin() && confirm('Да ли сте сигурни да желите да обришете овај чланак?')) {
-      if (deletePost(postId)) {
-        const updatedPosts = posts.filter(post => post.id !== postId);
-        setPosts(updatedPosts);
-        setRefreshKey(prev => prev + 1);
-        alert('Чланак је успешно обрисан!');
+      try {
+        const success = await postService.deletePost(postId);
+        if (success) {
+          const updatedPosts = posts.filter(post => post.id !== postId);
+          setPosts(updatedPosts);
+          setRefreshKey(prev => prev + 1);
+          alert('Чланак је успешно обрисан!');
+        } else {
+          alert('Грешка при брисању чланка!');
+        }
+      } catch (error) {
+        console.error('Error deleting post:', error);
+        alert('Грешка при брисању чланка!');
       }
     }
   };
 
   const handleEditPost = (postId: string) => {
-    console.log('Dashboard: Editing post with ID:', postId);
-    
-    // Verify post exists before navigating
-    const storedPosts = localStorage.getItem('blogPosts');
-    const currentPosts = storedPosts ? JSON.parse(storedPosts) : posts;
-    const postExists = currentPosts.find(post => post.id === postId);
-    
-    console.log('Dashboard: Available posts:', currentPosts.map(p => ({ id: p.id, title: p.title })));
-    console.log('Dashboard: Looking for post:', postId);
-    console.log('Dashboard: Post exists:', !!postExists);
+    const postExists = posts.find(post => post.id === postId);
     
     if (!postExists) {
-      console.error('Dashboard: Post not found:', postId);
       alert('Чланак није пронађен!');
       return;
     }
-    
-    console.log('Dashboard: Post found, dispatching edit event for:', postExists.title);
     
     // First navigate to write page, then dispatch edit event
     onNavigate('write');
     
     // Dispatch edit event after navigation
     setTimeout(() => {
-      console.log('Dashboard: Dispatching edit event after navigation');
       const event = new CustomEvent('editPost', { detail: postId });
       window.dispatchEvent(event);
     }, 200);
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (canAdmin() && userId !== user?.id && confirm('Да ли сте сигурни да желите да обришете овог корисника?')) {
-      if (deleteAuthor(userId)) {
-        const updatedUsers = users.filter(u => u.id !== userId);
-        setUsers(updatedUsers);
-        setRefreshKey(prev => prev + 1);
-        alert('Корисник је успешно обрисан!');
+      try {
+        const success = await profileService.deleteProfile(userId);
+        if (success) {
+          const updatedUsers = users.filter(u => u.id !== userId);
+          setUsers(updatedUsers);
+          setRefreshKey(prev => prev + 1);
+          alert('Корисник је успешно обрисан!');
+        } else {
+          alert('Грешка при брисању корисника!');
+        }
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        alert('Грешка при брисању корисника!');
       }
     }
   };
@@ -142,7 +150,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
       </div>
       <div className="divide-y divide-amber-200">
-        {posts.length === 0 ? (
+        {loading ? (
+          <div className="p-6 text-center text-gray-500">
+            Учитавање чланака...
+          </div>
+        ) : posts.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
             Нема чланака за приказ
           </div>
@@ -179,11 +191,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                       onClick={() => handleDeletePost(post.id)}
                       className="p-2 text-gray-400 hover:text-red-600 transition-colors"
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                  {!canAdmin() && (
-                    <button className="p-2 text-gray-400 hover:text-red-600 transition-colors">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   )}

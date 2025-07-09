@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { User, Lock, Mail, FileText, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
-import { addNewAuthor } from '../data/authors';
-import { User as UserType } from '../types';
+import { authService } from '../services/authService';
 
 interface AuthorRegistrationProps {
   onBack: () => void;
@@ -77,21 +76,12 @@ const AuthorRegistration: React.FC<AuthorRegistrationProps> = ({ onBack, onLogin
     }
 
     try {
-      // Симулација регистрације
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const newAuthor: UserType = {
-        id: Date.now().toString(),
-        email: formData.email,
+      await authService.signUp(formData.email, formData.password, {
         name: formData.name,
-        role: 'author',
         bio: formData.bio || 'Нови аутор на платформи',
-        joinedAt: new Date().toISOString(),
-        isActive: true,
-        avatar: formData.avatar || undefined
-      };
-
-      addNewAuthor(newAuthor);
+        avatar: formData.avatar
+      });
+      
       setSuccess('Успешно сте се регистровали! Можете се сада пријавити.');
       
       // Очисти форму
@@ -111,7 +101,7 @@ const AuthorRegistration: React.FC<AuthorRegistrationProps> = ({ onBack, onLogin
       }, 2000);
 
     } catch (err) {
-      setError('Грешка при регистрацији. Покушајте поново.');
+      setError(err instanceof Error ? err.message : 'Грешка при регистрацији. Покушајте поново.');
     } finally {
       setLoading(false);
     }

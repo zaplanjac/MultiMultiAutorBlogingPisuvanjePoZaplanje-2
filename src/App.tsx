@@ -9,11 +9,10 @@ import Dashboard from './components/Dashboard';
 import WritePost from './components/WritePost';
 import AuthorRegistration from './components/AuthorRegistration';
 import { BlogPost as BlogPostType } from './types';
-import { addPost } from './data/mockData';
 import { useAuth } from './contexts/AuthContext';
 
 function App() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('blog');
   const [selectedPost, setSelectedPost] = useState<BlogPostType | null>(null);
   const [editPostId, setEditPostId] = useState<string | null>(null);
@@ -67,37 +66,18 @@ function App() {
     setCurrentPage('dashboard');
   };
 
-  const handleSavePost = (postData: { 
-    title: string; 
-    content: string; 
-    excerpt: string; 
-    featuredImage?: string; 
-    category: string; 
-    tags: string[] 
-  }) => {
-    if (!user) return;
-    
-    const newPost: BlogPostType = {
-      id: Date.now().toString(),
-      title: postData.title,
-      content: postData.content,
-      excerpt: postData.excerpt,
-      slug: postData.title.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, ''),
-      authorId: user.id,
-      category: postData.category,
-      tags: postData.tags,
-      status: 'published',
-      featuredImage: postData.featuredImage,
-      publishedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      viewCount: 0,
-      isFeature: false
-    };
-    
-    addPost(newPost);
-    setCurrentPage('dashboard');
-  };
+  // Show loading screen while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-800 mx-auto mb-4"></div>
+          <p className="text-gray-600">Учитавање...</p>
+        </div>
+      </div>
+    );
+  }
+
   const renderContent = () => {
     switch (currentPage) {
       case 'blog':
@@ -115,7 +95,7 @@ function App() {
       case 'write':
         return (
           <WritePost 
-            onSave={handleSavePost} 
+            onSave={() => {}} // Not used anymore, handled internally
             onCancel={() => handleNavigate('dashboard')} 
             editPostId={editPostId || undefined}
           />

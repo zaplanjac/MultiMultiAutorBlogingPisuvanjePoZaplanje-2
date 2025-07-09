@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, AuthContextType } from '../types';
-import { getRegisteredAuthors } from '../data/authors';
+import { authService } from '../services/authService';
+import { profileService } from '../services/profileService';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -19,57 +20,67 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-      const userData = JSON.parse(savedUser);
-      setUser(userData);
-      setIsAuthenticated(true);
-    }
+    // Check for existing session
+    const initializeAuth = async () => {
+      try {
+        const session = await authService.getSession();
+        if (session?.user) {
+          const profile = await authService.getCurrentUserProfile();
+          if (profile) {
+            setUser(profile);
+            setIsAuthenticated(true);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = authService.onAuthStateChange((user) => {
+      setUser(user);
+      setIsAuthenticated(!!user);
+      setLoading(false);
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // Get fresh user data from storage
-    const allUsers = getRegisteredAuthors();
-    console.log('All users during login:', allUsers.map(u => ({ email: u.email, name: u.name, active: u.isActive })));
-    console.log('Trying to login with:', email, password);
-    
-    const foundUser = allUsers.find(u => u.email === email && u.isActive);
-    console.log('Found user:', foundUser);
-    
-    // Check for super admin with special password
-    if (foundUser && foundUser.email === 'djoricnenad@gmail.com' && password === '1Flasicradule!') {
-      console.log('Super admin login successful');
-      setUser(foundUser);
-      setIsAuthenticated(true);
-      localStorage.setItem('currentUser', JSON.stringify(foundUser));
-      return true;
+    try {
+      const result = await authService.signIn(email, password);
+      if (result?.user) {
+        const profile = await authService.getCurrentUserProfile();
+        if (profile) {
+          setUser(profile);
+          setIsAuthenticated(true);
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
     }
-    // Check for Neško Nešić with special password
-    else if (foundUser && foundUser.email === 'neschkonesic@gmail.com' && password === '1Flasicradule!') {
-      console.log('Neško Nešić login successful with special password');
-      setUser(foundUser);
-      setIsAuthenticated(true);
-      localStorage.setItem('currentUser', JSON.stringify(foundUser));
-      return true;
-    }
-    // Check for other users with default password
-    else if (foundUser && password === 'admin123') {
-      console.log('Regular user login successful');
-      setUser(foundUser);
-      setIsAuthenticated(true);
-      localStorage.setItem('currentUser', JSON.stringify(foundUser));
-      return true;
-    }
-    console.log('Login failed - user not found or wrong password');
-    return false;
   };
 
-  const logout = () => {
-    setUser(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('currentUser');
+  const logout = async () => {
+    try {
+      await authService.signOut();
+      setUser(null);
+      setIsAuthenticated(false);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const canEdit = (postId: string): boolean => {
@@ -89,6 +100,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const value: AuthContextType = {
     user,
+    loading,
     login,
     logout,
     isAuthenticated,

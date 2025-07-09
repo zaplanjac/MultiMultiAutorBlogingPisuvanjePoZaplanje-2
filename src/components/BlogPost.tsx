@@ -2,7 +2,8 @@ import React from 'react';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Calendar, User, Eye, Tag, Share2, Github, ArrowUp, PenTool } from 'lucide-react';
 import { BlogPost as BlogPostType } from '../types';
-import { getRegisteredAuthors } from '../data/authors';
+import { profileService } from '../services/profileService';
+import { postService } from '../services/postService';
 
 interface BlogPostProps {
   post: BlogPostType;
@@ -10,13 +11,40 @@ interface BlogPostProps {
 }
 
 const BlogPost: React.FC<BlogPostProps> = ({ post, onBack }) => {
-  const author = getRegisteredAuthors().find(user => user.id === post.authorId);
+  const [author, setAuthor] = useState<any>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   // Scroll to top when component mounts
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [post.id]); // Re-run when post changes
+
+  // Load author data
+  useEffect(() => {
+    const loadAuthor = async () => {
+      try {
+        const authorData = await profileService.getProfileById(post.authorId);
+        setAuthor(authorData);
+      } catch (error) {
+        console.error('Error loading author:', error);
+      }
+    };
+
+    loadAuthor();
+  }, [post.authorId]);
+
+  // Increment view count
+  useEffect(() => {
+    const incrementViews = async () => {
+      try {
+        await postService.incrementViewCount(post.id);
+      } catch (error) {
+        console.error('Error incrementing view count:', error);
+      }
+    };
+
+    incrementViews();
+  }, [post.id]);
 
   // Update meta tags for social sharing
   useEffect(() => {

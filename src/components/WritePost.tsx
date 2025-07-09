@@ -2,7 +2,8 @@ import React, { useState, useRef } from 'react';
 import { useEffect } from 'react';
 import { PenTool, Save, X, Image, Upload, Trash2, Bold, Italic, List, Link, Quote, Type } from 'lucide-react';
 import { BlogPost } from '../types';
-import { mockPosts, updatePost } from '../data/mockData';
+import { postService } from '../services/postService';
+import { useAuth } from '../contexts/AuthContext';
 
 interface WritePostProps {
   onSave: (post: { title: string; content: string; excerpt: string; featuredImage?: string; category: string; tags: string[] }) => void;
@@ -11,6 +12,7 @@ interface WritePostProps {
 }
 
 const WritePost: React.FC<WritePostProps> = ({ onSave, onCancel, editPostId }) => {
+  const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [excerpt, setExcerpt] = useState('');
@@ -20,6 +22,7 @@ const WritePost: React.FC<WritePostProps> = ({ onSave, onCancel, editPostId }) =
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [imageAlt, setImageAlt] = useState('');
+  const [loading, setLoading] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -27,46 +30,48 @@ const WritePost: React.FC<WritePostProps> = ({ onSave, onCancel, editPostId }) =
 
   // Load post data when editing
   useEffect(() => {
-    if (editPostId) {
-      const storedPosts = localStorage.getItem('blogPosts');
-      const posts = storedPosts ? JSON.parse(storedPosts) : mockPosts;
-      const postToEdit = posts.find((post: BlogPost) => post.id === editPostId);
-      
-      if (postToEdit) {
-        setIsEditing(true);
-        setEditingPost(postToEdit);
-        setTitle(postToEdit.title);
-        setContent(postToEdit.content);
-        setExcerpt(postToEdit.excerpt);
-        setFeaturedImage(postToEdit.featuredImage || '');
-        setCategory(postToEdit.category);
-        setTags(postToEdit.tags.join(', '));
+    const loadPostForEditing = async (postId: string) => {
+      try {
+        const postToEdit = await postService.getPostById(postId);
+        if (postToEdit) {
+          setIsEditing(true);
+          setEditingPost(postToEdit);
+          setTitle(postToEdit.title);
+          setContent(postToEdit.content);
+          setExcerpt(postToEdit.excerpt);
+          setFeaturedImage(postToEdit.featuredImage || '');
+          setCategory(postToEdit.category);
+          setTags(postToEdit.tags.join(', '));
+        }
+      } catch (error) {
+        console.error('Error loading post for editing:', error);
       }
+    };
+
+    if (editPostId) {
+      loadPostForEditing(editPostId);
     }
   }, [editPostId]);
 
   // Listen for edit events
   useEffect(() => {
-    const handleEditPost = (event: CustomEvent) => {
+    const handleEditPost = async (event: CustomEvent) => {
       const postId = event.detail;
-      console.log('WritePost: Received edit event for post ID:', postId);
       
-      const storedPosts = localStorage.getItem('blogPosts');
-      const posts = storedPosts ? JSON.parse(storedPosts) : mockPosts;
-      const postToEdit = posts.find((post: BlogPost) => post.id === postId);
-      
-      console.log('WritePost: Found post to edit:', postToEdit?.title);
-      
-      if (postToEdit) {
-        setIsEditing(true);
-        setEditingPost(postToEdit);
-        setTitle(postToEdit.title);
-        setContent(postToEdit.content);
-        setExcerpt(postToEdit.excerpt);
-        setFeaturedImage(postToEdit.featuredImage || '');
-        setCategory(postToEdit.category);
-        setTags(postToEdit.tags.join(', '));
-        console.log('WritePost: Post data loaded for editing');
+      try {
+        const postToEdit = await postService.getPostById(postId);
+        if (postToEdit) {
+          setIsEditing(true);
+          setEditingPost(postToEdit);
+          setTitle(postToEdit.title);
+          setContent(postToEdit.content);
+          setExcerpt(postToEdit.excerpt);
+          setFeaturedImage(postToEdit.featuredImage || '');
+          setCategory(postToEdit.category);
+          setTags(postToEdit.tags.join(', '));
+        }
+      } catch (error) {
+        console.error('Error loading post for editing:', error);
       }
     };
     
@@ -77,38 +82,63 @@ const WritePost: React.FC<WritePostProps> = ({ onSave, onCancel, editPostId }) =
     };
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (title.trim() && content.trim()) {
+    if (title.trim() && content.trim() && user) {
+      setLoading(true);
       const tagArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
       
-      if (isEditing && editingPost) {
-        // Update existing post
-        const updatedPost: BlogPost = {
-          ...editingPost,
-          title: title.trim(),
-          content: content.trim(),
-          excerpt: excerpt.trim() || content.substring(0, 150) + '...',
-          featuredImage: featuredImage.trim() || undefined,
-          category: category,
-          tags: tagArray,
-          updatedAt: new Date().toISOString()
-        };
-        
-        if (updatePost(editingPost.id, updatedPost)) {
-          console.log('WritePost: Post updated successfully');
-          onCancel(); // Go back to dashboard
+      try {
+        if (isEditing && editingPost) {
+          // Update existing post
+          const updatedPost = await postService.updatePost(editingPost.id, {
+            title: title.trim(),
+            content: content.trim(),
+            excerpt: excerpt.trim() || content.substring(0, 150) + '...',
+            featuredImage: featuredImage.trim() || undefined,
+            category: category,
+            tags: tagArray
+          });
+          
+          if (updatedPost) {
+            onCancel(); // Go back to dashboard
+          } else {
+            alert('Грешка при ажурирању чланка!');
+          }
+        } else {
+          // Create new post
+          const slug = title.toLowerCase()
+            .replace(/\s+/g, '-')
+            .replace(/[^\w\-]+/g, '')
+            .replace(/\-\-+/g, '-')
+            .replace(/^-+/, '')
+            .replace(/-+$/, '');
+
+          const newPost = await postService.createPost({
+            title: title.trim(),
+            content: content.trim(),
+            excerpt: excerpt.trim() || content.substring(0, 150) + '...',
+            slug: slug,
+            authorId: user.id,
+            category: category,
+            tags: tagArray,
+            status: 'published',
+            featuredImage: featuredImage.trim() || undefined,
+            publishedAt: new Date().toISOString(),
+            isFeature: false
+          });
+          
+          if (newPost) {
+            onCancel(); // Go back to dashboard
+          } else {
+            alert('Грешка при креирању чланка!');
+          }
         }
-      } else {
-        // Create new post
-        onSave({
-          title: title.trim(),
-          content: content.trim(),
-          excerpt: excerpt.trim() || content.substring(0, 150) + '...',
-          featuredImage: featuredImage.trim() || undefined,
-          category: category,
-          tags: tagArray
-        });
+      } catch (error) {
+        console.error('Error saving post:', error);
+        alert('Грешка при чувању чланка!');
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -464,10 +494,18 @@ const WritePost: React.FC<WritePostProps> = ({ onSave, onCancel, editPostId }) =
               </button>
               <button
                 type="submit"
+                disabled={loading}
                 className="flex items-center space-x-2 px-6 py-2 bg-amber-800 text-amber-50 rounded-lg hover:bg-amber-900 focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition-colors"
               >
                 <Save className="w-4 h-4" />
-                <span>{isEditing ? 'Сачувај измене' : 'Сачувај чланак'}</span>
+                <span>
+                  {loading 
+                    ? 'Чување...' 
+                    : isEditing 
+                      ? 'Сачувај измене' 
+                      : 'Сачувај чланак'
+                  }
+                </span>
               </button>
             </div>
           </form>
